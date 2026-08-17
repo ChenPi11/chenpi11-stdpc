@@ -1,0 +1,50 @@
+[
+  {
+    "target": "/home",
+    "opt": {"subvol": "/@/@Roaming/@home"}
+  },
+  {
+    "target": "/opt",
+    "opt": {"subvol": "/@/@Roaming/@opt"}
+  },
+  {
+    "target": "/nocow",
+    "opt": {"subvol": "/@/@NoCoW"}
+  },
+  {
+    "target": "/lsl/ArchLinux",
+    "opt": {"subvol": "/@/@Systems/ArchLinux"}
+  },
+  {
+    "target": "/lsl/Deepin",
+    "opt": {"subvol": "/@/@Systems/Deepin"}
+  },
+  {
+    "target": "/lsl/Debian",
+    "opt": {"subvol": "/@/@Systems/Debian"}
+  },
+  { 
+    "target": "/var/lib/docker",
+    "opt": {"subvol": "/@/@Roaming/@Docker"}
+  },
+  { 
+    "target": "/var/lib/containers",
+    "opt": {"subvol": "/@/@Roaming/@Podman"}
+  },
+  { 
+    "target": "/var/lib/flatpak",
+    "opt": {"subvol": "/@/@Roaming/@Flatpak"}
+  },
+  { 
+    "target": "/var/lib/linglong",
+    "opt": {"subvol": "/@/@Roaming/@Linglong"}
+  },
+  { 
+    "target": "/var/lib/waydroid",
+    "opt": {"subvol": "/@/@Roaming/@Waydroid"}
+  },
+  {
+    "target": "/var/lib/libvirt",
+    "opt": {"subvol": "/@/@Roaming/@Libvirt"}
+  }
+]

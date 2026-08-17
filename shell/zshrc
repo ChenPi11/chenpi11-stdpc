@@ -1,0 +1,121 @@
+# Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
+# Initialization code that may require console input (password prompts, [y/n]
+# confirmations, etc.) must go above this block; everything else may go below.
+#if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
+#  source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
+#fi
+
+
+### Added by Zinit's installer
+if [[ ! -f $HOME/.local/share/zinit/zinit.git/zinit.zsh ]]; then
+    print -P "%F{33} %F{220}Installing %F{33}ZDHARMA-CONTINUUM%F{220} Initiative Plugin Manager (%F{33}zdharma-continuum/zinit%F{220})…%f"
+    command mkdir -p "$HOME/.local/share/zinit" && command chmod g-rwX "$HOME/.local/share/zinit"
+    command git clone https://github.com/zdharma-continuum/zinit "$HOME/.local/share/zinit/zinit.git" && \
+        print -P "%F{33} %F{34}Installation successful.%f%b" || \
+        print -P "%F{160} The clone has failed.%f%b"
+fi
+
+source "$HOME/.local/share/zinit/zinit.git/zinit.zsh"
+autoload -Uz _zinit
+(( ${+_comps} )) && _comps[zinit]=_zinit
+
+# Load a few important annexes, without Turbo
+# (this is currently required for annexes)
+zinit light-mode for \
+    zdharma-continuum/zinit-annex-as-monitor \
+    zdharma-continuum/zinit-annex-bin-gem-node \
+    zdharma-continuum/zinit-annex-patch-dl \
+    zdharma-continuum/zinit-annex-rust
+
+### End of Zinit's installer chunk
+
+zinit ice depth"1"
+zinit light romkatv/powerlevel10k
+zpcompinit
+zpcdreplay
+zinit light Aloxaf/fzf-tab
+enable-fzf-tab
+zinit light zdharma/fast-syntax-highlighting
+zinit light zsh-users/zsh-autosuggestions
+zinit light rupa/z
+zinit light ael-code/zsh-colored-man-pages
+zinit light le0me55i/zsh-extract
+zinit light hcgraf/zsh-sudo
+zinit light DarrinTisdale/zsh-aliases-exa
+zinit light akarzim/zsh-docker-aliases
+
+alias lcat=/bin/cat
+alias cat='bat -pp'
+alias 1='cd -'
+alias 2='cd -2'
+alias 3='cd -3'
+alias 4='cd -4'
+alias 5='cd -5'
+alias 6='cd -6'
+alias 7='cd -7'
+alias 8='cd -8'
+alias 9='cd -9'
+alias _='sudo '
+alias mounts='findmnt -a'
+alias afind='ack -il'
+alias egrep='egrep --color=auto'
+alias fgrep='fgrep --color=auto'
+alias gc1='git clone --recursive --depth=1'
+alias globurl='noglob urlglobber '
+alias grep='grep --color=auto'
+alias md='mkdir -p'
+alias rd=rmdir
+alias lls=/bin/ls
+alias ls="eza --color=auto"
+alias l='eza -lZbah --icons'
+alias la='eza -lZabgh --icons'
+alias ll='eza -lZbg --icons'
+alias lsa='eza -lbagR --icons'
+alias lst='eza -lTabgh --icons'
+alias diff='diff --color'
+alias dd='dd status=progress'
+alias xz='xz -v'
+alias a='source .venv/bin/activate'
+alias makedev='make -f Makefile.devel'
+alias cmake='cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
+
+bindkey "^[[H" beginning-of-line
+bindkey "^[[F" end-of-line
+bindkey "^[OH" beginning-of-line
+bindkey "^[OF" end-of-line
+bindkey "^[[5~" history-beginning-search-backward
+bindkey "^[[6~" history-beginning-search-forward
+bindkey "^[[3~" delete-char
+bindkey "^[[1;5D" backward-word
+bindkey "^[[1;5C" forward-word
+
+source ~/.local/share/omz/git.plugin.zsh
+
+HISTFILE=~/.zsh_history
+HISTSIZE=10000
+SAVEHIST=100000
+setopt EXTENDED_HISTORY
+setopt HIST_IGNORE_ALL_DUPS
+setopt HIST_IGNORE_SPACE
+setopt INC_APPEND_HISTORY
+setopt SHARE_HISTORY
+
+eval "$(fzf --zsh)"
+
+# Load pkgfile's command-not-found
+if [ -f "/etc/arch-release" ]; then
+    source /usr/share/doc/pkgfile/command-not-found.zsh
+elif [ -f "/etc/debian_version" ]; then
+    command_not_found_handler()
+    {
+        /usr/lib/command-not-found -- "$1"
+        return $?
+    }
+fi
+
+if [ -d "$HOME/.local/bin" ] ; then
+    PATH="$HOME/.local/bin:$PATH"
+fi
+
+# To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
+[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh

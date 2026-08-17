@@ -1,0 +1,13 @@
+[Unit]
+Description=Disk Temperature Monitor Daemon
+After=syslog.target
+
+[Service]
+Type=simple
+ExecStart=/opt/temp-monitor/temp-check-dsk-daemon.sh
+Restart=always
+RestartSec=10s
+User=root
+
+[Install]
+WantedBy=multi-user.target

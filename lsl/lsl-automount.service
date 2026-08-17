@@ -1,0 +1,17 @@
+[Unit]
+Description=LSL Automounter
+DefaultDependencies=no
+After=fs.mount
+Requires=fs.mount
+OnFailure=emergency.target
+OnFailureJobMode=replace-irreversibly
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /fs/@/lsl/automount.py
+RemainAfterExit=no
+Restart=no
+SuccessExitStatus=0
+
+[Install]
+WantedBy=local-fs.target

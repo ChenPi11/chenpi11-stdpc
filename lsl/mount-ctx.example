@@ -1,0 +1,11 @@
+{
+  "dev": "/dev/disk/by-partuuid/7726e9d4-fb04-4219-a065-271e91d84f24",
+  "opt": {
+           "rw": true,
+           "relatime": true,
+           "ssd": true,
+           "discard": "async",
+           "space_cache": "v2",
+           "compress": "zstd:3"
+       }
+}
