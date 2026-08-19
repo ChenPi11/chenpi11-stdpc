@@ -1,0 +1,10 @@
+#!/bin/sh
+
+sudo echo > /dev/null
+
+cpu_temp_raw=$(cat /sys/class/thermal/thermal_zone0/temp)
+cpu_temp_c=$((cpu_temp_raw / 1000))
+echo "CPU: ${cpu_temp_c}°C"
+
+dsk_temp=$(sudo nvme smart-log /dev/nvme0 | awk '/temperature/ {print $3}')
+echo "DSK: ${dsk_temp}°C"

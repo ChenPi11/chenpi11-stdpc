@@ -87,6 +87,7 @@ do_install()
     record_exec install -v -m 755 temp-monitor/* /opt/temp-monitor/
     record_exec install -v -m 755 temp-monitor-cpu.service /etc/systemd/system/
     record_exec install -v -m 755 temp-monitor-dsk.service /etc/systemd/system/
+    record_exec install -v -m 755 temp /usr/local/bin/
     record_exec systemctl daemon-reload
     record_exec systemctl enable temp-monitor-cpu
     record_exec systemctl enable temp-monitor-dsk
