@@ -3,6 +3,10 @@
 TEMP_FILE="/sys/class/thermal/thermal_zone0/temp"
 THRESHOLD=90000
 
+if [ -f "/tmp/.temp-monitor-test.cpu" ]; then
+    exit 1
+fi
+
 if [ -f "$TEMP_FILE" ]; then
     TEMP=$(cat "$TEMP_FILE")
     if [ "$TEMP" -gt "$THRESHOLD" ]; then
