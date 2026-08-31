@@ -101,10 +101,10 @@ else
         checks doas
         echo -e "\033[36mConfiguring doas...\033[0m"
         conf_install_dir=$(ask_input "Install doas.conf to" "/etc")
-        record_exec sh -c "cat > $conf_install_dir/doas.conf <<'EOF'
+        record_exec sh -c 'cat > "'"$conf_install_dir"'/doas.conf" <<'"'"'EOF'"'"'
     permit persist chenpi11 as admin
     permit nopass admin as root
-    EOF"
+EOF'
         if [ ! -f /etc/pam.d/doas ] && [ -d /etc/pam.d ]; then
             if [ ! -f /etc/pam.d/sudo ]; then
                 echo -e "\033[33mWarning: /etc/pam.d/sudo not found, skipping PAM configuration for doas.\033[0m"
