@@ -58,7 +58,7 @@ checks()
     fi
 }
 
-checks bash zsh mkdir cp htop
+checks bash zsh mkdir cp htop oh-my-posh
 
 if [ -d "$HOME/.local/share/chenpi11" ] && [ $force_install -eq 0 ]; then
     echo -e "\033[1;32mSKIP: ~/.local/share/chenpi11 already exists. \033[0m"
@@ -111,6 +111,7 @@ if ask_yesno "Do you want to install PowerShel profile?"; then
         record_exec rm -rvf "$HOME/.config/powershell/Microsoft.PowerShell_profile.ps1"
         record_exec rm -rvf "$HOME/.config/powershell/Microsoft.VSCode_profile.ps1"
         record_exec mkdir -vp "$HOME/.config/powershell"
+        record_exec pwsh -Command "Install-Module -Name Terminal-Icons -Force -Scope CurrentUser"
         record_exec cp -v Microsoft.PowerShell_profile.ps1 "$HOME/.config/powershell/Microsoft.PowerShell_profile.ps1"
         record_exec ln -sv "$HOME/.config/powershell/Microsoft.PowerShell_profile.ps1" "$HOME/.config/powershell/Microsoft.VSCode_profile.ps1"
     fi

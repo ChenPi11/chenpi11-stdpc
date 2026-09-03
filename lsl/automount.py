@@ -1,14 +1,17 @@
 #!/bin/env python3
+
+"""Automount for LSL."""
+
+import copy
+import json
+import sys
 from dataclasses import dataclass
-from typing import Any
 from pathlib import Path
 from shutil import which
 from subprocess import run as s_run
-import json
-import copy
-import sys
+from typing import Any, cast
 
-CONFIG_ROOT = "/fs/@" # Btrfs-root, not / because / is a subvolume.
+CONFIG_ROOT = "/fs/@"  # Btrfs-root, not / because / is a subvolume.
 MOUNT_TABLE_FILE_NAME = ".mount"
 MOUNT_CTX_FILE_NAME = ".mount-ctx"
 
@@ -19,58 +22,68 @@ MOUNT = which("mount") or "mount"
 def merge_json_dict(target: "dict[str, Any]", src: "dict[str, Any] | None") -> "None":
     """Merge two json-serializable dict.
 
-       Notice it will write to target dict.
- 
-       Arguments:
-           target (dict[str, Any]): Target dict to merge.
-           src (dict[str, Any] | None): Delta to merge.
+    Notice it will write to target dict.
 
-       """
+    Arguments:
+        target (dict[str, Any]): Target dict to merge.
+        src (dict[str, Any] | None): Delta to merge.
+
+    """
     if not src:
         return
 
     for key, val in src.items():
-        if key not in target or type(target[key]) != type(src[key]):
+        if key not in target or type(target[key]) != type(val):
             target[key] = val
         elif isinstance(target[key], list):
-            target[key].extend(src[key])
+            target[key].extend(val)
         elif isinstance(target[key], dict):
-            merge_json_dict(target[key], src[key])
+            merge_json_dict(target[key], val)
         else:
             target[key] = val
 
 
 def to_mount_command(mnt: "Mount") -> "list[str]":
     """Convert a mount target to mount command."""
-    cmd = [
-        MOUNT,
-        str(mnt.dev),
-        str(mnt.target)
-        ]
+    cmd = [MOUNT, str(mnt.dev), str(mnt.target)]
     if mnt.options:
-        opt_str = ",".join(sorted(opt if val is True else f"{opt}={val}" for opt, val in mnt.options.items() if val is not None))
+        opt_str = ",".join(
+            sorted(
+                opt if val is True else f"{opt}={val}"
+                for opt, val in mnt.options.items()
+                if val is not None
+            )
+        )
         cmd.extend(["-o", opt_str])
+
+    if mnt.mnt_type == "bind":
+        cmd.append("--bind")
+    elif mnt.mnt_type == "rbind":
+        cmd.append("--rbind")
 
     return cmd
 
-def parse_mount_table(ctx: "dict[str, Any]", target: "Path", *, parent: "Path | None" = None) -> "list[Mount]":
+
+def parse_mount_table(
+    ctx: "dict[str, Any]", target: "Path", *, parent: "Path | None" = None
+) -> "list[Mount]":
     """Parse mount table from a directory."""
     if not target.is_absolute():
-            print("[ERRI] Internal error: target must be absolute.")
+        print("[ERRI] Internal error: target must be absolute.")
     table_file = target / MOUNT_TABLE_FILE_NAME
     if not table_file.exists():
-        return [] # Stop.
+        return []  # Stop.
     with table_file.open("r", encoding="utf-8") as f:
         try:
-            table = json.load(f)
-            if not isinstance(table, list):
+            table: list[dict[str, Any]] = json.load(f)
+            if not isinstance(cast("Any", table), list):
                 raise TypeError("Mount table must be a list of dict.")
         except:
             print(f"[ERRL] Error while loading {table_file.resolve().as_posix()!r}")
             raise
 
     ctx_file = target / MOUNT_CTX_FILE_NAME
-    if ctx_file.exists(): # Optional.
+    if ctx_file.exists():  # Optional.
         with ctx_file.open("r", encoding="utf-8") as f:
             try:
                 ctx_delta = json.load(f)
@@ -80,29 +93,28 @@ def parse_mount_table(ctx: "dict[str, Any]", target: "Path", *, parent: "Path | 
                 print(f"[ERRL] Error while loading {ctx_file.resolve().as_posix()!r}")
                 raise
     else:
-        ctx_delta = {}
+        ctx_delta: dict[str, Any] | None = {}
 
     # Merge context.
-    ctx_ = copy.deepcopy(ctx) # Copy to avoid change input parameter.
+    ctx_ = copy.deepcopy(ctx)  # Copy to avoid change input parameter.
     merge_json_dict(ctx_, ctx_delta)
     ctx_["_parent"] = parent or target
 
     res: list[Mount] = []
     for m in table:
-        if not isinstance(m, dict):
+        if not isinstance(cast("Any", m), dict):
             raise TypeError("Mount table must be a list of dict.")
         res.append(Mount.parse(ctx_, {k: v for k, v in m.items()}))
 
     return res
 
 
-from pathlib import Path
-
 def is_mount(path: str | Path) -> bool:
+    """Check if a path is a mount point."""
     p = Path(path).resolve(strict=False)
     target_str = str(p)
 
-    try: 
+    try:
         with open("/proc/mounts", "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -122,8 +134,8 @@ def is_mount(path: str | Path) -> bool:
 
 def system(cmd: list[str], *, cwd: Path | str | None = None) -> None:
     """Run shell command."""
-    print(f"[TRAC] {cmd!r} at {(cwd or Path.cwd()).as_posix()!r}")
-    ret = s_run(cmd, cwd=cwd, shell=False).returncode
+    print(f"[TRAC] {cmd!r} at {Path(cwd or Path.cwd()).as_posix()!r}")
+    ret = s_run(cmd, check=False, cwd=cwd, shell=False).returncode
     if ret != 0:
         raise ValueError(f"Command {cmd!r} return non-zero value {ret}.")
 
@@ -134,7 +146,8 @@ class Mount:
 
     dev: "str"
     target: "Path"
-    options: "dict[str, str]"
+    mnt_type: "str"
+    options: "dict[str, str | bool | None]"
     ctx: "dict[str, Any]"
 
     @classmethod
@@ -147,7 +160,13 @@ class Mount:
         if src_["opt"] is None:
             src_["opt"] = {}
 
-        return cls(dev=str(src_["dev"]), target=ctx["_parent"] / Path(str(src_["target"])), options=src_["opt"], ctx=ctx)
+        return cls(
+            dev=str(src_["dev"]),
+            target=ctx["_parent"] / Path(str(src_["target"])),
+            mnt_type=str(src_["type"]).lower(),
+            options=cast("dict[str, str | bool | None]", src_["opt"]),
+            ctx=ctx,
+        )
 
     def umount_r(self) -> "None":
         """Umount recursively."""
@@ -156,9 +175,8 @@ class Mount:
 
     def mount_single(self) -> "None":
         """Mount this mount point."""
-        if is_mount(self.target):
-            if "-k" not in sys.argv:
-                self.umount_r()
+        if is_mount(self.target) and "-k" not in sys.argv:
+            self.umount_r()
         target = self.ctx["_parent"] / self.target
         if not target.is_absolute():
             print("[ERRI] Internal error: target must be absolute.")
@@ -178,5 +196,5 @@ class Mount:
             submnt.mount_r()
 
 if __name__ == "__main__":
-    for mnt in parse_mount_table({}, Path(CONFIG_ROOT), parent=Path("/")):
-        mnt.mount_r()
+    for root_mnt in parse_mount_table({}, Path(CONFIG_ROOT), parent=Path("/")):
+        root_mnt.mount_r()
