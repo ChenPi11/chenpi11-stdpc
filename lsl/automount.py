@@ -163,7 +163,7 @@ class Mount:
         return cls(
             dev=str(src_["dev"]),
             target=ctx["_parent"] / Path(str(src_["target"])),
-            mnt_type=str(src_["type"]).lower(),
+            mnt_type=str(src_.get("type", "")).lower(),
             options=cast("dict[str, str | bool | None]", src_["opt"]),
             ctx=ctx,
         )
