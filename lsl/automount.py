@@ -155,6 +155,7 @@ class Mount:
         """Parse a mount point."""
         src_ = copy.deepcopy(ctx)
         merge_json_dict(src_, src)
+        src_["opt"] = src_.get("opt", {})
         if type(src_["opt"]) not in [dict, type(None)]:
             raise TypeError("Mount options must be null or dict.")
         if src_["opt"] is None:
