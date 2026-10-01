@@ -1,0 +1,362 @@
+#! /bin/sh
+set -e
+
+# grub-mkconfig helper script.
+# Copyright (C) 2024  Free Software Foundation, Inc.
+#
+# GRUB is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# GRUB is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with GRUB.  If not, see <http://www.gnu.org/licenses/>.
+
+prefix="/usr"
+exec_prefix="/usr"
+datarootdir="/usr/share"
+
+. "$pkgdatadir/grub-mkconfig_lib"
+
+export TEXTDOMAIN=grub
+export TEXTDOMAINDIR="${datarootdir}/locale"
+
+: ${GRUB_CMDLINE_LINUX_RECOVERY:=single}
+
+# Source user config to pick up GRUB_BTRFS_SYSTEMS_DIR and other settings,
+# since grub-mkconfig only exports a predefined set of variables.
+if test -f /etc/default/grub ; then
+  . /etc/default/grub
+fi
+
+if [ "x${GRUB_BTRFS_SYSTEMS_DIR}" = "x" ]; then
+  gettext_printf "Error: GRUB_BTRFS_SYSTEMS_DIR is not set. Please set it in /etc/default/grub, e.g.:\n" >&2
+  gettext_printf "  GRUB_BTRFS_SYSTEMS_DIR=\"/fs/@/@Systems\"\n" >&2
+  exit 1
+fi
+
+SYSTEMS_DIR="${GRUB_BTRFS_SYSTEMS_DIR}"
+
+if ! test -d "${SYSTEMS_DIR}"; then
+  gettext_printf "Warning: GRUB_BTRFS_SYSTEMS_DIR=%s does not exist, skipping.\n" "${SYSTEMS_DIR}" >&2
+  exit 0
+fi
+
+GRUB_DEVICE="`${grub_probe} --target=device / 2>/dev/null`"
+if [ -z "${GRUB_DEVICE}" ]; then
+  exit 0
+fi
+
+BTRFS_FS="`${grub_probe} --device ${GRUB_DEVICE} --target=fs 2>/dev/null`"
+if [ "x${BTRFS_FS}" != "xbtrfs" ]; then
+  exit 0
+fi
+
+BTRFS_UUID="`${grub_probe} --device ${GRUB_DEVICE} --target=fs_uuid 2>/dev/null`"
+SYSTEMS_DIR_RESOLVED="`readlink -f "${SYSTEMS_DIR}" 2>/dev/null || echo "${SYSTEMS_DIR}"`"
+
+# Compute the btrfs-relative path of SYSTEMS_DIR for use in fallback paths
+systems_rel_base="`make_system_path_relative_to_its_root "${SYSTEMS_DIR_RESOLVED}" 2>/dev/null || true`"
+if [ -z "${systems_rel_base}" ]; then
+  systems_rel_base="${SYSTEMS_DIR_RESOLVED}"
+fi
+
+# Cached across all subvolumes (same physical device)
+prepare_root_cache=
+boot_device_id=
+
+linux_entry_btrfs ()
+{
+  os_name="$1"
+  os_class="$2"
+  version="$3"
+  type="$4"
+  args="$5"
+  subvol_path="$6"
+  linux_relpath="$7"
+  initrd_relpath="$8"
+  entry_id="$9"
+  root_device="${10}"
+
+  if [ -z "$boot_device_id" ]; then
+    boot_device_id="$(grub_get_device_id "${GRUB_DEVICE}")"
+  fi
+
+  if [ x"${type}" != xsimple ]; then
+    case "${type}" in
+      recovery)
+        title="$(gettext_printf "%s, with Linux %s (recovery mode)" "${os_name}" "${version}")" ;;
+      *)
+        title="$(gettext_printf "%s, with Linux %s" "${os_name}" "${version}")" ;;
+    esac
+    submenu_title="$(gettext_printf "Advanced options for %s" "${os_name}")"
+    if [ x"${title}" = x"${GRUB_ACTUAL_DEFAULT}" ] || [ x"${submenu_title}>${title}" = x"${GRUB_ACTUAL_DEFAULT}" ]; then
+      replacement_title="$(echo "${submenu_title}" | sed 's,>,>>,g')>$(echo "${title}" | sed 's,>,>>,g')"
+      quoted="$(echo "${GRUB_ACTUAL_DEFAULT}" | grub_quote)"
+      title_correction_code="${title_correction_code}if [ \"x\$default\" = '${quoted}' ]; then default='$(echo "${replacement_title}" | grub_quote)'; fi;"
+      grub_warn "$(gettext_printf "Please don't use old title \`%s' for GRUB_DEFAULT, use \`%s' (for versions before 2.00) or \`%s' (for 2.00 or later)" "${GRUB_ACTUAL_DEFAULT}" "${replacement_title}" "gnulinux-btrfs-advanced-${entry_id}>gnulinux-btrfs-${version}-${type}-${entry_id}")"
+    fi
+    echo "menuentry '$(echo "${title}" | grub_quote)' ${os_class} \$menuentry_id_option 'gnulinux-btrfs-${version}-${type}-${entry_id}' {" | sed "s/^/$submenu_indentation/"
+  else
+    echo "menuentry '$(echo "${os_name}" | grub_quote)' ${os_class} \$menuentry_id_option 'gnulinux-btrfs-simple-${entry_id}' {" | sed "s/^/$submenu_indentation/"
+  fi
+
+  if [ x"${type}" != xrecovery ]; then
+    save_default_entry | grub_add_tab
+  fi
+
+  if [ "x${GRUB_GFXPAYLOAD_LINUX}" = x ]; then
+    echo "	load_video" | sed "s/^/$submenu_indentation/"
+    if grep -qx "CONFIG_FB_EFI=y" "${config}" 2> /dev/null \
+        && grep -qx "CONFIG_VT_HW_CONSOLE_BINDING=y" "${config}" 2> /dev/null; then
+      echo "	set gfxpayload=keep" | sed "s/^/$submenu_indentation/"
+    fi
+  else
+    if [ "x${GRUB_GFXPAYLOAD_LINUX}" != xtext ]; then
+      echo "	load_video" | sed "s/^/$submenu_indentation/"
+    fi
+    echo "	set gfxpayload=${GRUB_GFXPAYLOAD_LINUX}" | sed "s/^/$submenu_indentation/"
+  fi
+
+  echo "	insmod gzio" | sed "s/^/$submenu_indentation/"
+
+  if [ -z "${prepare_root_cache}" ]; then
+    prepare_root_cache="$(prepare_grub_to_access_device ${GRUB_DEVICE} | grub_add_tab)"
+  fi
+  printf '%s\n' "${prepare_root_cache}" | sed "s/^/$submenu_indentation/"
+
+  message="$(gettext_printf "Loading Linux %s ..." "${version}")"
+  sed "s/^/$submenu_indentation/" << EOF
+	echo	'$(echo "${message}" | grub_quote)'
+	linux	${linux_relpath} root=${root_device} ro rootflags=subvol=${subvol_path} ${args}
+EOF
+
+  if test -n "${initrd_relpath}"; then
+    message="$(gettext_printf "Loading initial ramdisk ...")"
+    sed "s/^/$submenu_indentation/" << EOF
+	echo	'$(echo "${message}" | grub_quote)'
+	initrd	${initrd_relpath}
+EOF
+  fi
+
+  sed "s/^/$submenu_indentation/" << EOF
+}
+EOF
+}
+
+BTRFS_CMD=""
+if command -v btrfs >/dev/null 2>&1; then
+  BTRFS_CMD="btrfs"
+fi
+
+gettext_printf "Scanning btrfs subvolumes under %s ...\n" "${SYSTEMS_DIR}" >&2
+
+subvol_list=""
+for _d in "${SYSTEMS_DIR_RESOLVED}"/*/; do
+  [ -d "${_d}" ] || continue
+  _bn="$(basename "${_d}")"
+
+  if [ -n "${BTRFS_CMD}" ]; then
+    if "${BTRFS_CMD}" subvolume show "${_d}" >/dev/null 2>&1; then
+      subvol_list="$(printf "%s\n%s" "${subvol_list}" "${_bn}")"
+    fi
+  else
+    subvol_list="$(printf "%s\n%s" "${subvol_list}" "${_bn}")"
+  fi
+done
+
+subvol_list="$(echo "${subvol_list}" | sed '/^$/d')"
+if [ -z "${subvol_list}" ]; then
+  gettext_printf "No subvolumes found under %s\n" "${SYSTEMS_DIR}" >&2
+  exit 0
+fi
+
+machine=$(uname -m)
+case "${machine}" in
+  i?86) GENKERNEL_ARCH="x86" ;;
+  mips|mips64) GENKERNEL_ARCH="mips" ;;
+  mipsel|mips64el) GENKERNEL_ARCH="mipsel" ;;
+  arm*) GENKERNEL_ARCH="arm" ;;
+  *) GENKERNEL_ARCH="${machine}" ;;
+esac
+
+# Determine current root subvolume ID to avoid duplicating entries from 10_linux
+current_root_id=""
+if [ -n "${BTRFS_CMD}" ]; then
+  current_root_id="$("${BTRFS_CMD}" inspect-internal rootid / 2>/dev/null || true)"
+fi
+
+for subvol_name in ${subvol_list}; do
+  subvol_path="${SYSTEMS_DIR_RESOLVED}/${subvol_name}"
+  if ! test -d "${subvol_path}"; then
+    continue
+  fi
+
+  # Skip if this subvolume matches the currently running system
+  subvol_id=""
+  if [ -n "${BTRFS_CMD}" ]; then
+    subvol_id="$("${BTRFS_CMD}" inspect-internal rootid "${subvol_path}" 2>/dev/null || true)"
+  fi
+  if [ -n "${current_root_id}" ] && [ -n "${subvol_id}" ] && [ "${subvol_id}" = "${current_root_id}" ]; then
+    gettext_printf "  Skipping subvolume %s: matches current root (already handled by 10_linux)\n" "${subvol_path}" >&2
+    continue
+  fi
+
+  rel_path="`make_system_path_relative_to_its_root "${subvol_path}" 2>/dev/null || echo "${systems_rel_base}/${subvol_name}"`"
+
+  gettext_printf "  Examining subvolume %s ...\n" "${subvol_path}" >&2
+
+  # Detect distribution from os-release
+  OS_NAME=""
+  DISTRO_ID=""
+  if test -f "${subvol_path}/etc/os-release"; then
+    OS_NAME="`grep -s '^PRETTY_NAME=' "${subvol_path}/etc/os-release" | cut -d= -f2- | tr -d '"'`"
+    if [ -z "${OS_NAME}" ]; then
+      OS_NAME="`grep -s '^NAME=' "${subvol_path}/etc/os-release" | cut -d= -f2- | tr -d '"'`"
+    fi
+    DISTRO_ID="`grep -s '^ID=' "${subvol_path}/etc/os-release" | cut -d= -f2- | tr -d '"'`"
+  fi
+  if [ -z "${OS_NAME}" ]; then
+    OS_NAME="${subvol_name}"
+  fi
+  if [ -z "${DISTRO_ID}" ]; then
+    OS_CLASS="--class gnu-linux --class gnu --class os"
+  else
+    OS_CLASS="--class ${DISTRO_ID} --class gnu-linux --class gnu --class os"
+  fi
+
+  list=
+  for i in "${subvol_path}/boot/vmlinuz-"* "${subvol_path}/vmlinuz-"* "${subvol_path}/boot/kernel-"*; do
+    if grub_file_is_not_garbage "$i"; then list="$list $i"; fi
+  done
+
+  if [ -z "${list}" ]; then
+    gettext_printf "    No Linux kernel found, skipping.\n" >&2
+    continue
+  fi
+
+  reverse_sorted_list=$(echo "${list}" | tr ' ' '\n' | sed -e 's/\.old$/ 1/; / 1$/! s/$/ 2/' | version_sort -r | sed -e 's/ 1$/.old/; s/ 2$//')
+
+  if [ "x${GRUB_TOP_LEVEL}" != x ]; then
+    reverse_sorted_list=$(grub_move_to_front "${GRUB_TOP_LEVEL}" ${reverse_sorted_list})
+  fi
+
+  title_correction_code=
+  is_top_level=true
+  submenu_indentation=""
+
+  if [ -z "$boot_device_id" ]; then
+    boot_device_id="$(grub_get_device_id "${GRUB_DEVICE}")"
+  fi
+  entry_id="${boot_device_id}-${subvol_name}"
+
+  for linux in ${reverse_sorted_list}; do
+    gettext_printf "  Found Linux image: %s\n" "${linux}" >&2
+    basename=$(basename "${linux}")
+    dirname=$(dirname "${linux}")
+    version=$(echo "${basename}" | sed -e "s,^[^0-9]*-,,g")
+    alt_version=$(echo "${version}" | sed -e "s,\.old$,,g")
+
+    initrd_early=
+    for i in ${GRUB_EARLY_INITRD_LINUX_STOCK} \
+             ${GRUB_EARLY_INITRD_LINUX_CUSTOM}; do
+      if test -e "${dirname}/${i}"; then
+        initrd_early="${initrd_early} ${i}"
+      fi
+    done
+
+    initrd_real=
+    for i in "initrd.img-${version}" "initrd-${version}.img" \
+             "initrd-${alt_version}.img.old" "initrd-${version}.gz" \
+             "initrd-${alt_version}.gz.old" "initrd-${version}" \
+             "initramfs-${version}.img" "initramfs-${alt_version}.img.old" \
+             "initrd.img-${alt_version}" "initrd-${alt_version}.img" \
+             "initrd-${alt_version}" "initramfs-${alt_version}.img" \
+             "initramfs-genkernel-${version}" \
+             "initramfs-genkernel-${alt_version}" \
+             "initramfs-genkernel-${GENKERNEL_ARCH}-${version}" \
+             "initramfs-genkernel-${GENKERNEL_ARCH}-${alt_version}"; do
+      if test -e "${dirname}/${i}"; then
+        initrd_real="${i}"
+        break
+      fi
+    done
+
+    initrd=
+    if test -n "${initrd_early}" || test -n "${initrd_real}"; then
+      initrd="${initrd_early} ${initrd_real}"
+      initrd_display=
+      for i in ${initrd}; do
+        initrd_display="${initrd_display} ${dirname}/${i}"
+      done
+      gettext_printf "  Found initrd image: %s\n" "$(echo "${initrd_display}")" >&2
+    fi
+
+    config=
+    for i in "${dirname}/config-${version}" "${dirname}/config-${alt_version}" "/etc/kernels/kernel-config-${version}"; do
+      if test -e "${i}"; then
+        config="${i}"
+        break
+      fi
+    done
+
+    initramfs=
+    if test -n "${config}"; then
+      initramfs=$(grep CONFIG_INITRAMFS_SOURCE= "${config}" | cut -f2 -d= | tr -d \")
+    fi
+
+    initrd_relpath=
+    if test -n "${initrd}"; then
+      for i in ${initrd}; do
+        _rel="`make_system_path_relative_to_its_root "${dirname}/${i}" 2>/dev/null || echo "${rel_path}/boot/${i}"`"
+        initrd_relpath="${initrd_relpath} ${_rel}"
+      done
+    fi
+
+    linux_relpath="`make_system_path_relative_to_its_root "${linux}" 2>/dev/null || echo "${rel_path}/boot/${basename}"`"
+
+    if test -z "${initramfs}" && test -z "${initrd_real}"; then
+      linux_root_device="${GRUB_DEVICE}"
+    else
+      linux_root_device="UUID=${BTRFS_UUID}"
+    fi
+
+    if [ "x${GRUB_DISABLE_SUBMENU}" = xyes ] || [ "x${GRUB_DISABLE_SUBMENU}" = xy ]; then
+      GRUB_DISABLE_SUBMENU="true"
+    fi
+
+    if [ "x${is_top_level}" = xtrue ] && [ "x${GRUB_DISABLE_SUBMENU}" != xtrue ]; then
+      linux_entry_btrfs "${OS_NAME}" "${OS_CLASS}" "${version}" simple \
+        "${GRUB_CMDLINE_LINUX} ${GRUB_CMDLINE_LINUX_DEFAULT}" \
+        "${rel_path}" "${linux_relpath}" "${initrd_relpath}" "${entry_id}" \
+        "${linux_root_device}"
+
+      submenu_indentation="${grub_tab}"
+      echo "submenu '$(gettext_printf "Advanced options for %s" "${OS_NAME}" | grub_quote)' \$menuentry_id_option 'gnulinux-btrfs-advanced-${entry_id}' {"
+      is_top_level=false
+    fi
+
+    linux_entry_btrfs "${OS_NAME}" "${OS_CLASS}" "${version}" advanced \
+      "${GRUB_CMDLINE_LINUX} ${GRUB_CMDLINE_LINUX_DEFAULT}" \
+      "${rel_path}" "${linux_relpath}" "${initrd_relpath}" "${entry_id}" \
+      "${linux_root_device}"
+
+    if [ "x${GRUB_DISABLE_RECOVERY}" != "xtrue" ]; then
+      linux_entry_btrfs "${OS_NAME}" "${OS_CLASS}" "${version}" recovery \
+        "${GRUB_CMDLINE_LINUX_RECOVERY} ${GRUB_CMDLINE_LINUX}" \
+        "${rel_path}" "${linux_relpath}" "${initrd_relpath}" "${entry_id}" \
+        "${linux_root_device}"
+    fi
+  done
+
+  if [ x"${is_top_level}" != xtrue ]; then
+    echo '}'
+  fi
+
+  echo "${title_correction_code}"
+done
