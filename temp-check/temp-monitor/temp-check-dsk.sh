@@ -11,7 +11,7 @@ if [ -f "/tmp/.temp-monitor-test.dsk" ]; then
     exit 1
 fi
 
-TEMP=$(nvme smart-log /dev/nvme0 | awk '/temperature/ {print $3}')
+TEMP=$(nvme log smart /dev/nvme0 | awk '/temperature/ {print $3}')
 if [ "$TEMP" -gt "$THRESHOLD" ]; then
     exit 1
 fi
