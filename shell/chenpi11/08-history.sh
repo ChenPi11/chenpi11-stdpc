@@ -11,11 +11,11 @@ fi
 
 # For setting history length see HISTSIZE and HISTFILESIZE in bash(1).
 # Bash/Zsh
-export HISTSIZE=1000
+export HISTSIZE=1000000
 # Bash
-export HISTFILESIZE=100000
+export HISTFILESIZE=1000000
 # Zsh
-export SAVEHIST=100000
+export SAVEHIST=1000000
 
 if [ -n "$BASH_VERSION" ]; then
     HISTFILE=~/.bash_history
